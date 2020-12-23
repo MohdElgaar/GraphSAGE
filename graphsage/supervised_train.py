@@ -52,9 +52,12 @@ flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity e
 flags.DEFINE_string('base_log_dir', '.', 'base directory for logging and saving embeddings')
 flags.DEFINE_integer('validate_iter', 5000, "how often to run a validation minibatch.")
 flags.DEFINE_integer('validate_batch_size', 256, "how many nodes per validation sample.")
-flags.DEFINE_integer('gpu', 1, "which gpu to use.")
-flags.DEFINE_integer('print_every', 5, "How often to print training info.")
+flags.DEFINE_integer('gpu', 0, "which gpu to use.")
+flags.DEFINE_integer('print_every', 50, "How often to print training info.")
 flags.DEFINE_integer('max_total_steps', 10**10, "Maximum total number of iterations")
+
+flags.DEFINE_string('curr', 'degree', 'curriculum method')
+flags.DEFINE_boolean('curr_rev', False, 'reverse sorting')
 
 os.environ["CUDA_VISIBLE_DEVICES"]=str(FLAGS.gpu)
 
@@ -80,10 +83,12 @@ def evaluate(sess, model, minibatch_iter, size=None):
 
 def log_dir():
     log_dir = FLAGS.base_log_dir + "/sup-" + FLAGS.train_prefix.split("/")[-2]
-    log_dir += "/{model:s}_{model_size:s}_{lr:0.4f}/".format(
+    log_dir += "/{model:s}_{model_size:s}_{lr:0.4f}_{curr:s}_{rev:}/".format(
             model=FLAGS.model,
             model_size=FLAGS.model_size,
-            lr=FLAGS.learning_rate)
+            lr=FLAGS.learning_rate,
+            curr=FLAGS.curr,
+            rev=FLAGS.curr_rev)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     return log_dir
@@ -133,10 +138,13 @@ def train(train_data, test_data=None):
     if not features is None:
         # pad with dummy zero vector
         features = np.vstack([features, np.zeros((features.shape[1],))])
+    curr = train_data[5]
 
     context_pairs = train_data[3] if FLAGS.random_context else None
     placeholders = construct_placeholders(num_classes)
     minibatch = NodeMinibatchIterator(G, 
+            curr,
+            FLAGS.curr_rev,
             id_map,
             placeholders, 
             class_map,
@@ -260,7 +268,7 @@ def train(train_data, test_data=None):
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
     for epoch in range(FLAGS.epochs): 
-        minibatch.shuffle() 
+        minibatch.shuffle(epoch) 
 
         iter = 0
         print('Epoch: %04d' % (epoch + 1))
@@ -331,7 +339,7 @@ def train(train_data, test_data=None):
 
 def main(argv=None):
     print("Loading training data..")
-    train_data = load_data(FLAGS.train_prefix)
+    train_data = load_data(FLAGS.train_prefix, FLAGS.curr)
     print("Done loading training data..")
     train(train_data)
 

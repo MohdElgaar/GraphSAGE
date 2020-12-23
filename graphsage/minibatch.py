@@ -188,7 +188,7 @@ class NodeMinibatchIterator(object):
     batch_size -- size of the minibatches
     max_degree -- maximum size of the downsampled adjacency lists
     """
-    def __init__(self, G, id2idx, 
+    def __init__(self, G, curr, curr_rev, id2idx, 
             placeholders, label_map, num_classes, 
             batch_size=100, max_degree=25,
             **kwargs):
@@ -213,6 +213,12 @@ class NodeMinibatchIterator(object):
         self.train_nodes = set(G.nodes()).difference(self.no_train_nodes_set)
         # don't train on nodes that only have edges to test set
         self.train_nodes = [n for n in self.train_nodes if self.deg[id2idx[n]] > 0]
+
+        if curr is not None:
+            self.train_nodes.sort(key=lambda n: curr[n], reverse=curr_rev)
+            self.curr_N = 3
+        else:
+            self.curr_N = 1
 
     def _make_label_vec(self, node):
         label = self.label_map[node]
@@ -259,7 +265,7 @@ class NodeMinibatchIterator(object):
         return adj
 
     def end(self):
-        return self.batch_num * self.batch_size >= len(self.train_nodes)
+        return self.batch_num * self.batch_size >= self.ending
 
     def batch_feed_dict(self, batch_nodes, val=False):
         batch1id = batch_nodes
@@ -312,9 +318,15 @@ class NodeMinibatchIterator(object):
             len(node_list))]
         return self.batch_feed_dict(val_nodes), (iter_num+1)*size >= len(node_list), val_nodes
 
-    def shuffle(self):
+    def shuffle(self, e):
         """ Re-shuffle the training set.
             Also reset the batch number.
         """
-        self.train_nodes = np.random.permutation(self.train_nodes)
+        ending = min(len(self.train_nodes) * (e+1)/self.curr_N,
+                len(self.train_nodes))
+        ending = int(ending)
+        self.ending = ending
+
+        shuffled = np.random.permutation(self.train_nodes[:ending]).tolist()
+        self.train_nodes = shuffled + self.train_nodes[ending:]
         self.batch_num = 0
